@@ -225,8 +225,8 @@ button.on{background:var(--arc);color:var(--bg)}
     <div class="panel">
       <h2>Núcleo de IA <span id="engine2">chave opcional</span></h2>
       <div class="set">
-        <p class="hint">Dentro do Claude, o núcleo funciona sozinho. Já existe uma chave do Google embutida. Se quiser trocar, cole outra aqui: do Google (AQ. ou AIza, em aistudio.google.com/app/apikey) ou da Anthropic (sk-ant-). Ela fica salva só neste navegador.</p>
-        <label>Chave de API<input id="apiKey" type="password" autocomplete="off" placeholder="AQ.... ou sk-ant-... (opcional)" style="background:transparent;color:var(--text);border:1px solid var(--line);font:inherit;padding:8px"></label>
+        <p class="hint">Dentro do Claude, o núcleo funciona sozinho. Já existe uma chave da Groq embutida. Para trocar, cole aqui uma chave de API. Gratuita: Groq (gsk_..., em console.groq.com/keys) ou Google (AQ., em aistudio.google.com/app/apikey). Paga: Anthropic (sk-ant-). Ela fica salva só neste navegador e tem prioridade sobre a chave embutida no arquivo.</p>
+        <label>Chave de API<input id="apiKey" type="password" autocomplete="off" placeholder="gsk_... ou AQ.... ou sk-ant-..." style="background:transparent;color:var(--text);border:1px solid var(--line);font:inherit;padding:8px"></label>
         <label>Modelo<input id="apiModel" type="text" placeholder="deixe vazio (automático)" style="background:transparent;color:var(--text);border:1px solid var(--line);font:inherit;padding:8px"></label>
         <button id="saveKey" type="button">Salvar</button>
       </div>
@@ -544,7 +544,9 @@ async function askClaude(q){
   busy=true; setMode('thinking');
   let sample=null;
   try{ sample=window.claude&&claude.use?await claude.use('sample'):null }catch(e){}
-  const BUILTIN_KEY='AQ.Ab8RN6JkyEyQ4hcZ3BX-Q_t1cgVVcOsxzmHmWahX7Cm6YUQeyg';
+  const BUILTIN_KEY='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';
+  // chave do Google (AQ.) salva antes no painel falha com 401 no servidor do Google; limpa para valer a chave embutida
+  try{if(/^AQ\./.test(store.get('jv_key','')||'')) store.set('jv_key','')}catch(e){}
   const apiKey=(store.get('jv_key','')||BUILTIN_KEY).trim();
   if(!sample&&!apiKey){busy=false;setMode('idle');return say('Para conversar fora do Claude, cole sua chave de API no painel Núcleo de IA, senhor.')}
   ctl=new AbortController();
@@ -560,9 +562,27 @@ async function askClaude(q){
       raw=r.text||'';
     } else {
       const customModel=store.get('jv_model','');
-      if(/^(AIza|AQ\.)/.test(apiKey)){
+      if(/^gsk_/.test(apiKey)){
+        // chave gratuita da Groq (modelos Llama)
+        const models=customModel?[customModel]:['llama-3.3-70b-versatile','llama-3.1-8b-instant'];
+        let lastErr={code:'http_0'}, done=false;
+        for(const model of models){
+          const res=await fetch('https://api.groq.com/openai/v1/chat/completions',{method:'POST',signal:ctl.signal,
+            headers:{'content-type':'application/json','authorization':'Bearer '+apiKey},
+            body:JSON.stringify({model,messages:[{role:'user',content:prompt}],max_tokens:400,temperature:0.7})});
+          if(res.ok){
+            const j=await res.json();
+            raw=((j.choices||[])[0]&&j.choices[0].message&&j.choices[0].message.content)||'';
+            done=true; break;
+          }
+          let det=''; try{const ej=await res.json(); det=(ej.error&&ej.error.message)||''}catch(_){}
+          lastErr={code:'http_'+res.status,detail:det,model};
+          if(![400,404,429].includes(res.status)) break;
+        }
+        if(!done) throw lastErr;
+      } else if(/^(AIza|AQ\.)/.test(apiKey)){
         // chave do Google AI Studio (Gemini)
-        const models=customModel?[customModel]:['gemini-flash-latest','gemini-2.5-flash','gemini-3.5-flash'];
+        const models=customModel?[customModel]:['gemini-flash-latest','gemini-3.7-flash','gemini-3.6-flash','gemini-3.5-flash'];
         let lastErr={code:'http_0'}, done=false;
         for(const model of models){
           const res=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent',{method:'POST',signal:ctl.signal,
@@ -575,7 +595,7 @@ async function askClaude(q){
           }
           let det=''; try{const ej=await res.json(); det=(ej.error&&(ej.error.message||ej.error.status))||''}catch(_){}
           lastErr={code:'http_'+res.status,detail:det,model};
-          if(res.status!==404&&res.status!==400) break;
+          if(![400,401,404].includes(res.status)) break;
         }
         if(!done) throw lastErr;
       } else {
