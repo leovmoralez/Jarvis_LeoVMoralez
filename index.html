@@ -225,9 +225,9 @@ button.on{background:var(--arc);color:var(--bg)}
     <div class="panel">
       <h2>Núcleo de IA <span id="engine2">chave opcional</span></h2>
       <div class="set">
-        <p class="hint">Dentro do Claude, o núcleo funciona sozinho. Em uma cópia hospedada fora do Claude, cole sua chave de API da Anthropic. Ela fica salva só neste navegador.</p>
-        <label>Chave de API<input id="apiKey" type="password" autocomplete="off" placeholder="sk-ant-..." style="background:transparent;color:var(--text);border:1px solid var(--line);font:inherit;padding:8px"></label>
-        <label>Modelo<input id="apiModel" type="text" placeholder="claude-sonnet-5-5" style="background:transparent;color:var(--text);border:1px solid var(--line);font:inherit;padding:8px"></label>
+        <p class="hint">Dentro do Claude, o núcleo funciona sozinho. Já existe uma chave do Google embutida. Se quiser trocar, cole outra aqui: do Google (AQ. ou AIza, em aistudio.google.com/app/apikey) ou da Anthropic (sk-ant-). Ela fica salva só neste navegador.</p>
+        <label>Chave de API<input id="apiKey" type="password" autocomplete="off" placeholder="AQ.... ou sk-ant-... (opcional)" style="background:transparent;color:var(--text);border:1px solid var(--line);font:inherit;padding:8px"></label>
+        <label>Modelo<input id="apiModel" type="text" placeholder="deixe vazio (automático)" style="background:transparent;color:var(--text);border:1px solid var(--line);font:inherit;padding:8px"></label>
         <button id="saveKey" type="button">Salvar</button>
       </div>
     </div>
@@ -544,7 +544,8 @@ async function askClaude(q){
   busy=true; setMode('thinking');
   let sample=null;
   try{ sample=window.claude&&claude.use?await claude.use('sample'):null }catch(e){}
-  const apiKey=(store.get('jv_key','')||'').trim();
+  const BUILTIN_KEY='AQ.Ab8RN6KDOQkhJUPHVep6KeqWpWwZ7S1-0a-sxWHMYa-mRNDlNg';
+  const apiKey=(store.get('jv_key','')||BUILTIN_KEY).trim();
   if(!sample&&!apiKey){busy=false;setMode('idle');return say('Para conversar fora do Claude, cole sua chave de API no painel Núcleo de IA, senhor.')}
   ctl=new AbortController();
   const d=new Date();
@@ -558,12 +559,32 @@ async function askClaude(q){
       const r=await sample(prompt,{cache:false,signal:ctl.signal,onText:({text})=>{line.textContent=text}});
       raw=r.text||'';
     } else {
-      const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',signal:ctl.signal,
-        headers:{'content-type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-        body:JSON.stringify({model:(store.get('jv_model','')||'claude-sonnet-5-5'),max_tokens:300,messages:[{role:'user',content:prompt}]})});
-      if(!res.ok){throw {code:'http_'+res.status}}
-      const j=await res.json();
-      raw=(j.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('');
+      const customModel=store.get('jv_model','');
+      if(/^(AIza|AQ\.)/.test(apiKey)){
+        // chave do Google AI Studio (Gemini)
+        const models=customModel?[customModel]:['gemini-flash-latest','gemini-2.5-flash','gemini-3.5-flash'];
+        let lastErr={code:'http_0'}, done=false;
+        for(const model of models){
+          const res=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent',{method:'POST',signal:ctl.signal,
+            headers:{'content-type':'application/json','x-goog-api-key':apiKey},
+            body:JSON.stringify({contents:[{role:'user',parts:[{text:prompt}]}],generationConfig:{maxOutputTokens:1024}})});
+          if(res.ok){
+            const j=await res.json();
+            raw=((j.candidates||[])[0]&&((j.candidates[0].content||{}).parts||[]).map(p=>p.text||'').join(''))||'';
+            done=true; break;
+          }
+          lastErr={code:'http_'+res.status};
+          if(res.status!==404&&res.status!==400) break;
+        }
+        if(!done) throw lastErr;
+      } else {
+        const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',signal:ctl.signal,
+          headers:{'content-type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+          body:JSON.stringify({model:(customModel||'claude-sonnet-5-5'),max_tokens:300,messages:[{role:'user',content:prompt}]})});
+        if(!res.ok){throw {code:'http_'+res.status}}
+        const j=await res.json();
+        raw=(j.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('');
+      }
     }
     const out=raw.trim()||'Sem resposta, senhor.';
     line.textContent=out; history.push({r:'u',t:q},{r:'j',t:out});
@@ -575,7 +596,7 @@ async function askClaude(q){
     setMode('idle');
     say(e&&e.code==='not_granted'?'Preciso da sua autorização para usar o núcleo de linguagem, senhor.':
         e&&(e.code==='rate_limited'||e.code==='http_429')?'Estou recebendo pedidos demais. Aguarde um instante.':
-        e&&e.code==='http_401'?'A chave de API foi recusada, senhor. Confira no painel Núcleo de IA.':
+        e&&(e.code==='http_401'||e.code==='http_403'||e.code==='http_400')?'A chave de API foi recusada, senhor. Confira no painel Núcleo de IA.':
         e&&e.code==='http_404'?'O modelo informado não existe. Ajuste o nome no painel Núcleo de IA.':'Houve uma falha de comunicação com o núcleo.');
   }finally{busy=false}
 }
