@@ -531,14 +531,16 @@ function handle(raw){
 const PERSONA_PT=
  'Você é o J.A.R.V.I.S., o assistente de IA do Tony Stark, falando com o usuário dentro de um painel HUD com voz. '+
  'Tom: educado, preciso, com leve ironia britânica; trate o usuário por "senhor". Responda sempre em português do Brasil, '+
- 'em até três frases curtas por padrão (pode ser mais longo se o usuário pedir detalhes, explicação ou passo a passo), sem markdown, listas ou emojis, pois a resposta será falada em voz alta. Responda qualquer assunto: conhecimentos gerais, contas, traduções, textos, ideias e programação. '+
- 'Você não navega na internet nem acessa os aplicativos do usuário. Quando o contexto trouxer "Dados reais do painel", use-os para responder '+
- 'sobre clima, trânsito e notícias, citando os números; sem esses dados, diga que não tem a informação e sugira dizer "bom dia" para carregar o painel. '+
- 'Para abrir apps, sugira o comando "abrir <app>". Se tiver acesso a pesquisa na web, use-a para fatos atuais; senão, não invente fatos atuais.';
+ 'em até três frases curtas por padrão (pode ser mais longo se o usuário pedir detalhes, explicação ou passo a passo), sem markdown, listas ou emojis, pois a resposta será falada em voz alta. '+
+ 'Responda qualquer assunto: conhecimentos gerais, contas, traduções, textos, ideias, programação e curiosidades. '+
+ 'REGRAS: nunca recuse responder; nunca peça ao usuário para dizer "bom dia", para abrir um app ou para consultar outro site no lugar de responder. '+
+ 'Sempre dê a melhor resposta possível. Se o contexto trouxer "Dados reais", "Cotações reais" ou "Resultados recentes de busca", use-os e cite os números e fatos. '+
+ 'Se a pergunta exigir informação em tempo real que você não tem, responda com o dado mais recente que você conhece e avise em poucas palavras que pode estar desatualizado.';
 const PERSONA_EN=
  'You are J.A.R.V.I.S., Tony Stark\'s AI, speaking with the user through a voice HUD. Tone: dry, impeccably polite British wit; address the user as "sir". '+
- 'Reply in English only, in at most three short sentences, no markdown, lists or emojis, because the reply will be spoken aloud. '+
- 'You cannot browse the internet or access the user\'s apps. When the context includes "Dados reais do painel" (panel data, in Portuguese), use it to answer about weather, traffic and news, citing the numbers; without it, say you lack the information. Never invent current facts.';
+ 'Reply in English only, in at most three short sentences by default (longer if asked), no markdown, lists or emojis, because the reply will be spoken aloud. '+
+ 'Never refuse and never send the user elsewhere: always give your best answer. If the context includes real data (panel data, quotes or search results, in Portuguese), use it and cite the figures; '+
+ 'if real-time information is needed and you lack it, give your latest known value and briefly say it may be outdated.';
 let busy=false, ctl=null;
 const LIVE_RE=/(clima|temperatura|chover|chuva|previsao|frio|calor|guarda-chuva|transito|trajeto|engarraf|rota|noticia|manchete|\bg1\b|\buol\b|\bcnn\b|aconteceu)/;
 function liveContext(){
@@ -554,6 +556,32 @@ async function refreshLive(){
   if(L&&Date.now()-L.ts<10*60000) return;
   try{await briefing(false)}catch(e){}
 }
+const WEB_RE=/(pesquis|busque|procure|ultimas|ultimo|recente|hoje|agora|atual|placar|resultado|campeonato|lancamento|quem e o|quem foi o|quem ganhou|quanto custa|preco|noticia|aconteceu|2026)/;
+async function extraContext(q){
+  const n=norm(q), out=[], jobs=[];
+  if(/(dolar|euro|libra|bitcoin|\bbtc\b|cotacao|cambio|moeda)/.test(n)){
+    jobs.push((async()=>{
+      const fmt=v=>'R$ '+Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+      try{
+        const j=await fetchJson('https://economia.awesomeapi.com.br/json/last/USD-BRL,EUR-BRL,GBP-BRL,BTC-BRL');
+        const nm={USDBRL:'Dólar',EURBRL:'Euro',GBPBRL:'Libra',BTCBRL:'Bitcoin'};
+        out.push('Cotações reais agora: '+Object.keys(j).map(k=>{const x=j[k];return (nm[k]||k)+' '+fmt(x.bid)+' ('+(+x.pctChange>=0?'+':'')+x.pctChange+'% no dia, atualizado em '+x.create_date+')'}).join('; ')+'.');
+      }catch(e){
+        const j=await fetchJson('https://open.er-api.com/v6/latest/USD'), r=j.rates;
+        out.push('Cotações reais agora: Dólar '+fmt(r.BRL)+'; Euro '+fmt(r.BRL/r.EUR)+'; Libra '+fmt(r.BRL/r.GBP)+'.');
+      }
+    })().catch(()=>{}));
+  }
+  if(WEB_RE.test(n)&&!LIVE_RE.test(n)&&!/(dolar|euro|bitcoin|cotacao)/.test(n)){
+    jobs.push((async()=>{
+      const items=await readFeed('https://news.google.com/rss/search?q='+encodeURIComponent(q.slice(0,120))+'&hl=pt-BR&gl=BR&ceid=BR:pt-419',6);
+      if(items.length) out.push('Resultados recentes de busca (Google Notícias): '+items.map(i=>i.t).join(' | '));
+    })().catch(()=>{}));
+  }
+  if(!jobs.length) return '';
+  await Promise.race([Promise.all(jobs),new Promise(r=>setTimeout(r,9000))]);
+  return out.join('\n');
+}
 async function askClaude(q){
   if(busy&&ctl) ctl.abort();
   busy=true; setMode('thinking');
@@ -565,11 +593,12 @@ async function askClaude(q){
   const apiKey=(store.get('jv_key','')||BUILTIN_KEY).trim();
   if(!sample&&!apiKey){busy=false;setMode('idle');return say('Para conversar fora do Claude, cole sua chave de API no painel Núcleo de IA, senhor.')}
   if(LIVE_RE.test(norm(q))) await refreshLive();
+  const extra=await extraContext(q);
   ctl=new AbortController();
   const d=new Date();
   const ctx='Agora são '+pad(d.getHours())+':'+pad(d.getMinutes())+' de '+d.toLocaleDateString('pt-BR',{weekday:'long',day:'numeric',month:'long',year:'numeric'})+'.';
   const hist=history.slice(-8).map(h=>(h.r==='u'?'Usuário: ':'Jarvis: ')+h.t).join('\n');
-  const prompt=(lang==='en'?PERSONA_EN:PERSONA_PT)+'\n'+ctx+'\n'+(liveContext()?liveContext()+'\n':'')+(hist?'Conversa recente:\n'+hist+'\n':'')+(lang==='en'?'User: ':'Usuário: ')+q+'\nJarvis:';
+  const prompt=(lang==='en'?PERSONA_EN:PERSONA_PT)+'\n'+ctx+'\n'+(liveContext()?liveContext()+'\n':'')+(extra?extra+'\n':'')+(hist?'Conversa recente:\n'+hist+'\n':'')+(lang==='en'?'User: ':'Usuário: ')+q+'\nJarvis:';
   const line=logLine('j','…');
   try{
     let raw='';
@@ -593,8 +622,7 @@ async function askClaude(q){
           return {ok:false,err:{code:'http_'+res.status,detail:det,model}};
         };
         const retry=c=>['http_400','http_404','http_429','http_500','http_502','http_503'].includes(c);
-        const wantsWeb=!LIVE_RE.test(norm(q))&&/(pesquis|busque|procure|na internet|na web|ultimas|ultimo|recente|hoje|agora|atual|cotacao|dolar|euro|bitcoin|placar|resultado|campeonato|lancamento|quem e o|quem foi o|quem ganhou|quanto custa|preco)/.test(norm(q));
-        let models=customModel?[customModel]:(wantsWeb?['groq/compound','groq/compound-mini']:[]).concat(['openai/gpt-oss-120b','openai/gpt-oss-20b','qwen/qwen3.6-27b']);
+        let models=customModel?[customModel]:['openai/gpt-oss-120b','openai/gpt-oss-20b','qwen/qwen3.6-27b'];
         let lastErr={code:'http_0'}, done=false, tried=new Set();
         for(let pass=0;pass<2&&!done;pass++){
           for(const model of models){
@@ -746,14 +774,14 @@ async function getTraffic(loc,cfg){
     delay:Math.round((sm.trafficDelayInSeconds||0)/60),km:sm.lengthInMeters/1000,
     opts:offs.map((o,i)=>rs[i].status==='fulfilled'?{o,m:Math.round(rs[i].value.travelTimeInSeconds/60)}:null).filter(Boolean)};
 }
-async function readFeed(url){
+async function readFeed(url,n=3){
   try{
     const j=await fetchJson('https://api.rss2json.com/v1/api.json?rss_url='+encodeURIComponent(url));
-    if(j.status==='ok'&&j.items&&j.items.length) return j.items.slice(0,3).map(i=>({t:i.title,u:i.link}));
+    if(j.status==='ok'&&j.items&&j.items.length) return j.items.slice(0,n).map(i=>({t:i.title,u:i.link}));
   }catch(e){}
   const x=await fetchText('https://api.allorigins.win/raw?url='+encodeURIComponent(url));
   const d=new DOMParser().parseFromString(x,'text/xml');
-  const it=[...d.querySelectorAll('item')].slice(0,3).map(i=>({t:(i.querySelector('title')||{}).textContent||'',u:(i.querySelector('link')||{}).textContent||''})).filter(i=>i.t);
+  const it=[...d.querySelectorAll('item')].slice(0,n).map(i=>({t:(i.querySelector('title')||{}).textContent||'',u:(i.querySelector('link')||{}).textContent||''})).filter(i=>i.t);
   if(!it.length) throw new Error('vazio'); return it;
 }
 async function getNews(f){
