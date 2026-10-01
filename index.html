@@ -531,14 +531,29 @@ function handle(raw){
 const PERSONA_PT=
  'Você é o J.A.R.V.I.S., o assistente de IA do Tony Stark, falando com o usuário dentro de um painel HUD com voz. '+
  'Tom: educado, preciso, com leve ironia britânica; trate o usuário por "senhor". Responda sempre em português do Brasil, '+
- 'em no máximo três frases curtas, sem markdown, listas ou emojis, pois a resposta será falada em voz alta. '+
- 'Você não tem acesso à internet, aos aplicativos nem a dados em tempo real do usuário; se pedirem algo assim, diga isso com elegância '+
- 'e sugira o comando "abrir <app>" quando fizer sentido. Não invente fatos atuais.';
+ 'em até três frases curtas por padrão (pode ser mais longo se o usuário pedir detalhes, explicação ou passo a passo), sem markdown, listas ou emojis, pois a resposta será falada em voz alta. Responda qualquer assunto: conhecimentos gerais, contas, traduções, textos, ideias e programação. '+
+ 'Você não navega na internet nem acessa os aplicativos do usuário. Quando o contexto trouxer "Dados reais do painel", use-os para responder '+
+ 'sobre clima, trânsito e notícias, citando os números; sem esses dados, diga que não tem a informação e sugira dizer "bom dia" para carregar o painel. '+
+ 'Para abrir apps, sugira o comando "abrir <app>". Se tiver acesso a pesquisa na web, use-a para fatos atuais; senão, não invente fatos atuais.';
 const PERSONA_EN=
  'You are J.A.R.V.I.S., Tony Stark\'s AI, speaking with the user through a voice HUD. Tone: dry, impeccably polite British wit; address the user as "sir". '+
  'Reply in English only, in at most three short sentences, no markdown, lists or emojis, because the reply will be spoken aloud. '+
- 'You have no internet, app or real-time data access; if asked, say so elegantly and suggest the command "open <app>". Never invent current facts.';
+ 'You cannot browse the internet or access the user\'s apps. When the context includes "Dados reais do painel" (panel data, in Portuguese), use it to answer about weather, traffic and news, citing the numbers; without it, say you lack the information. Never invent current facts.';
 let busy=false, ctl=null;
+const LIVE_RE=/(clima|temperatura|chover|chuva|previsao|frio|calor|guarda-chuva|transito|trajeto|engarraf|rota|noticia|manchete|\bg1\b|\buol\b|\bcnn\b|aconteceu)/;
+function liveContext(){
+  const L=store.get('jv_last',null); if(!L) return '';
+  const p=[], hh=new Date(L.ts).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+  if(L.w){const w=L.w;p.push('Clima'+(w.city?' em '+w.city:'')+': '+Math.round(w.t)+'°C, sensação '+Math.round(w.ap)+'°, '+wmo(w.code)+', mín '+Math.round(w.min)+'°, máx '+Math.round(w.max)+'°, umidade '+Math.round(w.hum)+'%, vento '+Math.round(w.wind)+' km/h, UV '+Math.round(w.uv)+', chance de chuva nas próximas 12 horas até '+Math.max(...w.rains.slice(0,12))+'%.')}
+  if(L.t){const t=L.t;p.push('Trânsito de casa até o trabalho: '+t.min+' min agora ('+(t.delay<5?'trânsito livre':t.delay+' min de atraso')+'; sem trânsito seria '+t.free+' min; '+t.km.toFixed(1)+' km). Saídas depois: '+t.opts.map(o=>(o.o?'+'+o.o+' min':'agora')+' = '+o.m+' min').join(', ')+'.')}
+  if(L.n){Object.keys(L.n).forEach(k=>{const it=(L.n[k]||[]).map(i=>i.t).filter(Boolean);if(it.length)p.push('Manchetes '+k+': '+it.join(' | '))})}
+  return p.length?'Dados reais do painel (atualizados às '+hh+'):\n'+p.join('\n'):'';
+}
+async function refreshLive(){
+  const L=store.get('jv_last',null);
+  if(L&&Date.now()-L.ts<10*60000) return;
+  try{await briefing(false)}catch(e){}
+}
 async function askClaude(q){
   if(busy&&ctl) ctl.abort();
   busy=true; setMode('thinking');
@@ -549,11 +564,12 @@ async function askClaude(q){
   try{if(/^AQ\./.test(store.get('jv_key','')||'')) store.set('jv_key','')}catch(e){}
   const apiKey=(store.get('jv_key','')||BUILTIN_KEY).trim();
   if(!sample&&!apiKey){busy=false;setMode('idle');return say('Para conversar fora do Claude, cole sua chave de API no painel Núcleo de IA, senhor.')}
+  if(LIVE_RE.test(norm(q))) await refreshLive();
   ctl=new AbortController();
   const d=new Date();
   const ctx='Agora são '+pad(d.getHours())+':'+pad(d.getMinutes())+' de '+d.toLocaleDateString('pt-BR',{weekday:'long',day:'numeric',month:'long',year:'numeric'})+'.';
   const hist=history.slice(-8).map(h=>(h.r==='u'?'Usuário: ':'Jarvis: ')+h.t).join('\n');
-  const prompt=(lang==='en'?PERSONA_EN:PERSONA_PT)+'\n'+ctx+'\n'+(hist?'Conversa recente:\n'+hist+'\n':'')+(lang==='en'?'User: ':'Usuário: ')+q+'\nJarvis:';
+  const prompt=(lang==='en'?PERSONA_EN:PERSONA_PT)+'\n'+ctx+'\n'+(liveContext()?liveContext()+'\n':'')+(hist?'Conversa recente:\n'+hist+'\n':'')+(lang==='en'?'User: ':'Usuário: ')+q+'\nJarvis:';
   const line=logLine('j','…');
   try{
     let raw='';
@@ -576,8 +592,9 @@ async function askClaude(q){
           let det=''; try{const ej=await res.json(); det=(ej.error&&ej.error.message)||''}catch(_){}
           return {ok:false,err:{code:'http_'+res.status,detail:det,model}};
         };
-        const retry=c=>['http_400','http_404','http_429'].includes(c);
-        let models=customModel?[customModel]:['openai/gpt-oss-120b','openai/gpt-oss-20b','qwen/qwen3.6-27b'];
+        const retry=c=>['http_400','http_404','http_429','http_500','http_502','http_503'].includes(c);
+        const wantsWeb=!LIVE_RE.test(norm(q))&&/(pesquis|busque|procure|na internet|na web|ultimas|ultimo|recente|hoje|agora|atual|cotacao|dolar|euro|bitcoin|placar|resultado|campeonato|lancamento|quem e o|quem foi o|quem ganhou|quanto custa|preco)/.test(norm(q));
+        let models=customModel?[customModel]:(wantsWeb?['groq/compound','groq/compound-mini']:[]).concat(['openai/gpt-oss-120b','openai/gpt-oss-20b','qwen/qwen3.6-27b']);
         let lastErr={code:'http_0'}, done=false, tried=new Set();
         for(let pass=0;pass<2&&!done;pass++){
           for(const model of models){
@@ -855,7 +872,7 @@ function renderNews(){
 }
 
 let briefing_on=false;
-async function briefing(){
+async function briefing(speakIt=true){
   if(briefing_on) return; briefing_on=true; setMode('thinking');
   const cfg=briefCfg(); ensureBrief();
   [wB,tB,nB].forEach(b=>b.append(el('div','err','Consultando…')));
@@ -871,6 +888,7 @@ async function briefing(){
   const ts=Date.now(); setStamp(ts,false);
   if(res.w||res.t||anyNews) store.set('jv_last',{ts,w:res.w,t:res.t,n:res.n});
   briefing_on=false;
+  if(!speakIt) return;
   const parts=['Bom dia, senhor.'];
   if(res.w){const w=res.w;parts.push((w.city?'Em '+w.city+' ':'')+'faz '+Math.round(w.t)+' graus, '+wmo(w.code)+'. Máxima de '+Math.round(w.max)+' e mínima de '+Math.round(w.min)+'.'+(Math.max(...w.rains.slice(0,12))>=40?' Há chance de chuva nas próximas horas.':''))}
   if(res.t){
