@@ -114,6 +114,32 @@ button.on{background:var(--arc);color:var(--bg)}
 .bsec a{color:var(--text);text-decoration:none}
 .bsec a:hover{color:var(--arc);text-decoration:underline}
 .brief h2 button{padding:2px 10px;font-size:12px}
+.wtop{display:flex;gap:12px;align-items:center}
+.kpi{font-size:28px;font-weight:600;line-height:1;color:var(--arc);text-shadow:0 0 12px var(--glow);white-space:nowrap;font-variant-numeric:tabular-nums}
+.meta{display:flex;flex-direction:column;gap:1px;font-size:12px;color:var(--dim);min-width:0}
+.meta b{color:var(--text);font-weight:500;font-size:13px}
+.chips{display:flex;flex-wrap:wrap;gap:5px;margin:8px 0 2px}
+.chip{font-size:11px;border:1px solid var(--line);padding:2px 8px;display:inline-flex;gap:5px;white-space:nowrap}
+.chip i{font-style:normal;color:var(--dim)} .chip b{font-weight:500}
+.chart svg{width:100%;height:auto;display:block}
+.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:10.5px;color:var(--dim);margin-top:2px}
+.legend i{display:inline-block;width:10px;height:3px;margin-right:4px;vertical-align:middle}
+.legend .l1{background:var(--arc)} .legend .l2{background:var(--arc2);opacity:.6;height:8px;width:6px} .legend .l3{background:var(--gold)} .legend .l4{background:#3ecf8e;height:8px;width:8px}
+.ringbox{position:relative;width:58px;height:58px;flex:none}
+.ringbox svg{width:100%;height:100%;transform:rotate(-90deg)}
+.ringbox b{position:absolute;inset:0;display:grid;place-items:center;font-size:11px;font-weight:600;color:var(--text)}
+.rb{fill:none;stroke:var(--line);stroke-width:3.4}
+.rf{fill:none;stroke:var(--arc);stroke-width:3.4;stroke-linecap:round;stroke-dasharray:0 100}
+.rf.ok{stroke:#3ecf8e} .rf.warn{stroke:var(--gold)} .rf.bad{stroke:var(--red)}
+.s1{stop-color:var(--arc);stop-opacity:.32} .s2{stop-color:var(--arc);stop-opacity:0}
+.c-line{fill:none;stroke:var(--arc);stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+.c-dot{fill:var(--bg);stroke:var(--arc);stroke-width:2}
+.c-rain{fill:var(--arc2);opacity:.55}
+.c-txt{fill:var(--dim);font-size:9px;font-family:inherit}
+.c-val{fill:var(--text);font-size:10px;font-family:inherit;font-weight:500}
+.c-grid{stroke:var(--line);stroke-width:1;stroke-dasharray:2 3}
+.c-bar{fill:var(--arc2);opacity:.55} .c-bar.now{fill:var(--arc);opacity:.95} .c-bar.best{fill:#3ecf8e;opacity:1}
+.c-base{stroke:var(--gold);stroke-width:1;stroke-dasharray:4 3}
 @media (max-width:960px){
   .hud{grid-template-columns:1fr}
   .core{order:-1}
@@ -194,18 +220,6 @@ button.on{background:var(--arc);color:var(--bg)}
         <button id="testVoice" type="button">Testar voz</button>
         <p class="hint" id="diag">Verificando…</p>
         <p class="hint">A voz vem do seu aparelho. Em português, as melhores costumam ser “Antonio” (Edge), “Felipe” (iPhone/Mac) e as vozes masculinas do Android. Use o ajuste estilo Jarvis e teste.</p>
-      </div>
-    </div>
-    <div class="panel">
-      <h2>Resumo do dia <span>diga “bom dia”</span></h2>
-      <div class="set">
-        <p class="hint">Clima, trânsito até o trabalho e manchetes do G1, UOL e CNN Brasil. Só funciona em uma cópia hospedada fora do Claude (https), onde a página pode consultar a internet.</p>
-        <label>Trabalho (endereço completo)<input id="cfgWork" type="text" placeholder="Rua, número, cidade" style="background:transparent;color:var(--text);border:1px solid var(--line);font:inherit;padding:8px"></label>
-        <label>Casa (opcional; sem isso uso o GPS)<input id="cfgHome" type="text" placeholder="Rua, número, cidade" style="background:transparent;color:var(--text);border:1px solid var(--line);font:inherit;padding:8px"></label>
-        <label>Cidade (se o GPS falhar)<input id="cfgCity" type="text" placeholder="Ex.: Jaguariúna" style="background:transparent;color:var(--text);border:1px solid var(--line);font:inherit;padding:8px"></label>
-        <label>Chave TomTom (trânsito)<input id="cfgTT" type="password" autocomplete="off" placeholder="chave gratuita em developer.tomtom.com" style="background:transparent;color:var(--text);border:1px solid var(--line);font:inherit;padding:8px"></label>
-        <button id="saveBrief" type="button">Salvar</button>
-        <button id="runBrief" type="button">Mostrar resumo agora</button>
       </div>
     </div>
     <div class="panel">
@@ -573,6 +587,8 @@ const FEEDS=[
   {n:'CNN Brasil',url:'https://www.cnnbrasil.com.br/feed/',site:'cnnbrasil.com.br'}
 ];
 const ue=m=>{const e=new Error(m);e.user=true;return e};
+const el=(tag,cls,txt)=>{const e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;return e};
+const cap1=t=>t.charAt(0).toUpperCase()+t.slice(1);
 async function fetchRaw(u,json){
   const c=new AbortController(); const t=setTimeout(()=>c.abort(),10000);
   try{const r=await fetch(u,{signal:c.signal}); if(!r.ok) throw new Error('http '+r.status); return json?await r.json():await r.text()}
@@ -604,14 +620,29 @@ async function whereAmI(cfg){
   }
 }
 async function getWeather(loc){
-  const j=await fetchJson('https://api.open-meteo.com/v1/forecast?latitude='+loc.lat+'&longitude='+loc.lon+'&current=temperature_2m,apparent_temperature,weather_code&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=1');
-  return {t:j.current.temperature_2m,ap:j.current.apparent_temperature,code:j.current.weather_code,max:j.daily.temperature_2m_max[0],min:j.daily.temperature_2m_min[0],rain:j.daily.precipitation_probability_max[0],city:loc.name};
+  const j=await fetchJson('https://api.open-meteo.com/v1/forecast?latitude='+loc.lat+'&longitude='+loc.lon+'&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code&hourly=temperature_2m,precipitation_probability&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max&timezone=auto&forecast_days=2');
+  const nowH=j.current.time.slice(0,13)+':00';
+  let i0=j.hourly.time.findIndex(t=>t>=nowH); if(i0<0) i0=0;
+  const sl=a=>a.slice(i0,i0+24);
+  return {t:j.current.temperature_2m,ap:j.current.apparent_temperature,hum:j.current.relative_humidity_2m,wind:j.current.wind_speed_10m,code:j.current.weather_code,
+    max:j.daily.temperature_2m_max[0],min:j.daily.temperature_2m_min[0],uv:j.daily.uv_index_max[0],
+    sunrise:j.daily.sunrise[0].slice(11,16),sunset:j.daily.sunset[0].slice(11,16),
+    hours:sl(j.hourly.time).map(t=>+t.slice(11,13)),temps:sl(j.hourly.temperature_2m),rains:sl(j.hourly.precipitation_probability),city:loc.name};
 }
 async function geocodeAddr(q){
   const cache=store.get('jv_geo',{}); if(cache[q]) return cache[q];
   const r=await fetchJson('https://nominatim.openstreetmap.org/search?format=json&limit=1&accept-language=pt&q='+encodeURIComponent(q));
   if(!r.length) throw ue('Não encontrei o endereço "'+q+'". Tente com rua, número e cidade.');
   const g={lat:+r[0].lat,lon:+r[0].lon}; cache[q]=g; store.set('jv_geo',cache); return g;
+}
+function isoLocal(d){
+  const o=-d.getTimezoneOffset(), a=Math.abs(o);
+  return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'T'+pad(d.getHours())+':'+pad(d.getMinutes())+':00'+(o>=0?'+':'-')+pad(Math.floor(a/60))+':'+pad(a%60);
+}
+async function route(from,to,key,offMin){
+  let u='https://api.tomtom.com/routing/1/calculateRoute/'+from.lat+','+from.lon+':'+to.lat+','+to.lon+'/json?key='+encodeURIComponent(key)+'&traffic=true&travelMode=car&computeTravelTimeFor=all';
+  if(offMin>0) u+='&departAt='+encodeURIComponent(isoLocal(new Date(Date.now()+offMin*60000)));
+  const j=await fetchJson(u); return j.routes[0].summary;
 }
 async function getTraffic(loc,cfg){
   if(!cfg.work) throw ue('Informe o endereço do trabalho no painel Resumo do dia.');
@@ -621,9 +652,18 @@ async function getTraffic(loc,cfg){
   else if(loc.src==='gps') from=loc;
   else throw ue('Sem GPS: informe o endereço de casa no painel Resumo do dia.');
   const to=await geocodeAddr(cfg.work);
-  const j=await fetchJson('https://api.tomtom.com/routing/1/calculateRoute/'+from.lat+','+from.lon+':'+to.lat+','+to.lon+'/json?key='+encodeURIComponent(cfg.tt)+'&traffic=true&travelMode=car&computeTravelTimeFor=all');
-  const sm=j.routes[0].summary;
-  return {min:Math.round(sm.travelTimeInSeconds/60),delay:Math.round((sm.trafficDelayInSeconds||0)/60),km:sm.lengthInMeters/1000};
+  const offs=[0,30,60,90];
+  const rs=await Promise.allSettled(offs.map(o=>route(from,to,cfg.tt,o)));
+  if(rs[0].status!=='fulfilled'){
+    const m=(rs[0].reason&&rs[0].reason.message)||'';
+    if(/http 40[13]|http 429/.test(m)) throw ue('A chave TomTom foi recusada ou o limite de uso foi atingido ('+m+').');
+    throw rs[0].reason;
+  }
+  const sm=rs[0].value;
+  return {min:Math.round(sm.travelTimeInSeconds/60),free:Math.round((sm.noTrafficTravelTimeInSeconds||sm.travelTimeInSeconds)/60),
+    typ:sm.historicTrafficTravelTimeInSeconds?Math.round(sm.historicTrafficTravelTimeInSeconds/60):null,
+    delay:Math.round((sm.trafficDelayInSeconds||0)/60),km:sm.lengthInMeters/1000,
+    opts:offs.map((o,i)=>rs[i].status==='fulfilled'?{o,m:Math.round(rs[i].value.travelTimeInSeconds/60)}:null).filter(Boolean)};
 }
 async function readFeed(url){
   try{
@@ -639,63 +679,157 @@ async function getNews(f){
   try{return await readFeed(f.url)}
   catch(e){return await readFeed('https://news.google.com/rss/search?q='+encodeURIComponent('site:'+f.site)+'&hl=pt-BR&gl=BR&ceid=BR:pt-419')}
 }
-const briefCfg=()=>({work:store.get('jv_work',''),home:store.get('jv_home',''),city:store.get('jv_city',''),tt:store.get('jv_tt','')});
-function errText(e){return e&&e.user?e.message:'Sem acesso à internet neste modo. Hospede o arquivo fora do Claude (https) para usar o resumo.'}
+const BRIEF_CFG={
+  home:'Rua Rego Barros 815, São Paulo, SP, Brasil',
+  work:'Rua Olimpíadas 19, São Paulo, SP, Brasil',
+  city:'São Paulo',
+  tt:'SFxdbyR3RTn8vrFvXau01RNLzEJPJ3c3'
+};
+const briefCfg=()=>BRIEF_CFG;
+function errText(e){
+  if(e&&e.user) return e.message;
+  const m=(e&&e.message)||'';
+  if(/^http \d+/.test(m)) return 'Serviço indisponível no momento ('+m+').';
+  return 'Sem acesso à internet neste modo. Hospede o arquivo fora do Claude (https) para usar o resumo.';
+}
+
+/* gráficos (SVG em linha, só com números calculados) */
+function weatherChart(w){
+  const T=w.temps, n=T.length; if(n<2) return '';
+  const W=320,H=112,pl=12,pr=12,top=18,bot=56;
+  const mn=Math.min(...T), mx=Math.max(...T), rg=Math.max(1,mx-mn);
+  const X=i=>pl+i*(W-pl-pr)/(n-1), Y=v=>top+(1-(v-mn)/rg)*(bot-top);
+  const line='M'+T.map((v,i)=>X(i).toFixed(1)+','+Y(v).toFixed(1)).join(' L');
+  const area=line+' L'+X(n-1).toFixed(1)+','+bot+' L'+X(0).toFixed(1)+','+bot+' Z';
+  const lab=(i,v,dy)=>{const x=Math.max(16,Math.min(W-16,X(i)));return '<text class="c-val" x="'+x.toFixed(1)+'" y="'+(Y(v)+dy).toFixed(1)+'" text-anchor="middle">'+Math.round(v)+'°</text>'};
+  const iMax=T.indexOf(mx), iMin=T.indexOf(mn);
+  let s='<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Temperatura e chance de chuva nas próximas 24 horas"><defs><linearGradient id="wg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" class="s1"/><stop offset="1" class="s2"/></linearGradient></defs>';
+  s+='<line class="c-grid" x1="'+pl+'" x2="'+(W-pr)+'" y1="'+bot+'" y2="'+bot+'"/>';
+  s+='<path d="'+area+'" fill="url(#wg)"/><path class="c-line" d="'+line+'"/>';
+  w.rains.forEach((r,i)=>{const h=Math.max(1,(r||0)/100*20);s+='<rect class="c-rain" x="'+(X(i)-3).toFixed(1)+'" y="'+(94-h).toFixed(1)+'" width="6" height="'+h.toFixed(1)+'" rx="1"/>'});
+  s+='<circle class="c-dot" cx="'+X(0).toFixed(1)+'" cy="'+Y(T[0]).toFixed(1)+'" r="3.5"/>';
+  s+=lab(iMax,mx,-7);
+  if(iMin!==iMax) s+=lab(iMin,mn,13);
+  for(let i=0;i<n;i+=4){s+='<text class="c-txt" x="'+X(i).toFixed(1)+'" y="108" text-anchor="'+(i===0?'start':'middle')+'">'+(i===0?'agora':w.hours[i]+'h')+'</text>'}
+  return s+'</svg>';
+}
+function trafficChart(t){
+  const o=t.opts; if(!o||o.length<2) return '';
+  const W=320,H=98,top=18,bot=72,n=o.length;
+  const mxv=Math.max(...o.map(x=>x.m),t.free)*1.15;
+  const Y=v=>bot-(v/mxv)*(bot-top);
+  const slot=(W-20)/n, bw=Math.min(42,slot*.6);
+  const best=Math.min(...o.map(x=>x.m));
+  let s='<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Tempo de viagem por horário de saída">';
+  s+='<line class="c-grid" x1="10" x2="'+(W-10)+'" y1="'+bot+'" y2="'+bot+'"/>';
+  o.forEach((x,i)=>{
+    const cx=10+slot*(i+.5), y=Y(x.m), cls=x.m===best?'best':(x.o===0?'now':'');
+    s+='<rect class="c-bar '+cls+'" x="'+(cx-bw/2).toFixed(1)+'" y="'+y.toFixed(1)+'" width="'+bw.toFixed(1)+'" height="'+(bot-y).toFixed(1)+'" rx="3"/>';
+    s+='<text class="c-val" x="'+cx.toFixed(1)+'" y="'+(y-4).toFixed(1)+'" text-anchor="middle">'+x.m+'</text>';
+    s+='<text class="c-txt" x="'+cx.toFixed(1)+'" y="90" text-anchor="middle">'+(x.o===0?'agora':'+'+x.o+' min')+'</text>';
+  });
+  const yb=Y(t.free);
+  s+='<line class="c-base" x1="10" x2="'+(W-10)+'" y1="'+yb.toFixed(1)+'" y2="'+yb.toFixed(1)+'"/>';
+  return s+'</svg>';
+}
+
+/* renderização no painel do resumo */
+let wB=null,tB=null,nB=null,newsData={};
+function ensureBrief(){
+  const box=$('#brief'); box.hidden=false; box.innerHTML='';
+  const h=el('h2',null,'Resumo do dia ');
+  const sp=el('span',null,new Date().toLocaleDateString('pt-BR',{weekday:'long',day:'numeric',month:'long'})); sp.id='briefStamp';
+  const cl=el('button',null,'Fechar'); cl.type='button'; cl.onclick=()=>{box.hidden=true};
+  h.append(sp,cl); box.append(h);
+  const mk=t=>{const d=el('div','bsec');d.append(el('h3',null,t));const b=el('div');d.append(b);box.append(d);return b};
+  wB=mk('Clima · próximas 24 h'); tB=mk('Trânsito até o trabalho'); nB=mk('Notícias');
+}
+function setStamp(ts,stale){
+  const s=$('#briefStamp'); if(!s) return;
+  s.textContent=new Date().toLocaleDateString('pt-BR',{weekday:'long',day:'numeric',month:'long'})+' · '+(stale?'última atualização ':'atualizado ')+new Date(ts).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+}
+function renderWeather(w){
+  wB.replaceChildren();
+  const top=el('div','wtop'), meta=el('div','meta');
+  meta.append(el('b',null,(w.city?w.city+' · ':'')+cap1(wmo(w.code))),el('span',null,'Sensação '+Math.round(w.ap)+'° · mín '+Math.round(w.min)+'° · máx '+Math.round(w.max)+'°'));
+  top.append(el('div','kpi',Math.round(w.t)+'°C'),meta);
+  const chips=el('div','chips');
+  [['Umidade',Math.round(w.hum)+'%'],['Vento',Math.round(w.wind)+' km/h'],['UV',Math.round(w.uv)],['Sol',w.sunrise+'–'+w.sunset]].forEach(([k,v])=>{
+    const c=el('span','chip'); c.append(el('i',null,k),el('b',null,String(v))); chips.append(c);
+  });
+  const ch=el('div','chart'); ch.innerHTML=weatherChart(w);
+  const lg=el('div','legend'); lg.innerHTML='<span><i class="l1"></i>temperatura</span><span><i class="l2"></i>chance de chuva</span>';
+  wB.append(top,chips,ch,lg);
+}
+function renderTraffic(t){
+  tB.replaceChildren();
+  const cls=t.delay<5?'ok':t.delay<15?'warn':'bad';
+  const pct=Math.max(0,Math.min(100,Math.round(t.free/Math.max(1,t.min)*100)));
+  const top=el('div','wtop'), rb=el('div','ringbox');
+  rb.innerHTML='<svg viewBox="0 0 36 36"><circle class="rb" cx="18" cy="18" r="15.9155"/><circle class="rf '+cls+'" cx="18" cy="18" r="15.9155" style="stroke-dasharray:'+pct+' 100"/></svg>';
+  rb.append(el('b',null,t.delay<5?'livre':'+'+t.delay+'′'));
+  const meta=el('div','meta');
+  meta.append(el('b',null,t.km.toFixed(1).replace('.',',')+' km · '+(t.delay<5?'trânsito livre':t.delay+' min de atraso')),
+    el('span',null,'Fluidez '+pct+'%'+(t.typ?' · típico agora '+t.typ+' min':'')));
+  top.append(rb,el('div','kpi',t.min+' min'),meta);
+  tB.append(top);
+  const tc=trafficChart(t);
+  if(tc){
+    const ch=el('div','chart'); ch.style.marginTop='8px'; ch.innerHTML=tc;
+    const lg=el('div','legend'); lg.innerHTML='<span><i class="l4"></i>melhor saída (min)</span><span><i class="l3"></i>sem trânsito: '+t.free+' min</span>';
+    tB.append(ch,lg);
+  } else tB.append(el('div','err','Previsão por horário de saída indisponível agora.'));
+}
+function renderNews(){
+  nB.replaceChildren(); const ul=el('ul'); nB.append(ul);
+  FEEDS.forEach(f=>(newsData[f.n]||[]).forEach(i=>{
+    const li=el('li'); li.append(el('small',null,f.n));
+    const a=el('a',null,i.t); if(/^https?:/i.test(i.u)){a.href=i.u;a.target='_blank';a.rel='noopener noreferrer'}
+    li.append(a); ul.append(li);
+  }));
+  if(!ul.children.length) nB.replaceChildren(el('div','err','Sem manchetes agora.'));
+}
+
 let briefing_on=false;
 async function briefing(){
   if(briefing_on) return; briefing_on=true; setMode('thinking');
-  const cfg=briefCfg(), box=$('#brief'); box.hidden=false; box.innerHTML='';
-  const h=document.createElement('h2'); h.textContent='Resumo do dia ';
-  const sp=document.createElement('span'); sp.textContent=new Date().toLocaleDateString('pt-BR',{weekday:'long',day:'numeric',month:'long'});
-  const cl=document.createElement('button'); cl.type='button'; cl.textContent='Fechar'; cl.onclick=()=>{box.hidden=true};
-  h.append(sp,cl); box.append(h);
-  const mk=t=>{const d=document.createElement('div');d.className='bsec';const k=document.createElement('h3');k.textContent=t;const b=document.createElement('div');b.textContent='Consultando…';d.append(k,b);box.append(d);return b};
-  const wB=mk('Clima'), tB=mk('Trânsito até o trabalho'), nB=mk('Notícias');
-  const fail=(b,e)=>{b.className='err';b.textContent=errText(e)};
+  const cfg=briefCfg(); ensureBrief();
+  [wB,tB,nB].forEach(b=>b.append(el('div','err','Consultando…')));
+  newsData={};
   const loc=whereAmI(cfg); loc.catch(()=>{});
-  const res={w:null,t:null,n:[]};
-  const pw=loc.then(getWeather).then(w=>{
-    res.w=w; wB.className=''; wB.innerHTML='';
-    const big=document.createElement('div'); big.className='big'; big.textContent=Math.round(w.t)+'°C';
-    const d=document.createElement('div');
-    d.textContent=(w.city?w.city+' · ':'')+wmo(w.code)+', sensação de '+Math.round(w.ap)+'°. Mín '+Math.round(w.min)+'° · máx '+Math.round(w.max)+'°'+(w.rain!=null?' · chuva '+w.rain+'%':'');
-    wB.append(big,d);
-  }).catch(e=>fail(wB,e));
-  const pt=loc.then(l=>getTraffic(l,cfg)).then(t=>{
-    res.t=t; tB.innerHTML=''; tB.className='';
-    const big=document.createElement('div'); big.className='big '+(t.delay<5?'ok':t.delay<15?'mid':'bad'); big.textContent=t.min+' min';
-    const d=document.createElement('div');
-    d.textContent=t.km.toFixed(1).replace('.',',')+' km · '+(t.delay<5?'trânsito livre':t.delay+' min de atraso por trânsito');
-    tB.append(big,d);
-  }).catch(e=>fail(tB,e));
-  nB.textContent=''; const ul=document.createElement('ul'); nB.append(ul);
-  const pn=FEEDS.map(f=>getNews(f).then(items=>{
-    res.n.push({n:f.n,t:items[0].t});
-    items.forEach(i=>{
-      const li=document.createElement('li'); const sm=document.createElement('small'); sm.textContent=f.n;
-      const a=document.createElement('a'); a.textContent=i.t; if(/^https?:/i.test(i.u)){a.href=i.u;a.target='_blank';a.rel='noopener noreferrer'}
-      li.append(sm,a); ul.append(li);
-    });
-  }).catch(()=>{res.n.push({n:f.n,t:null});}));
+  const res={w:null,t:null,n:{}}, errs=[];
+  const pw=loc.then(getWeather).then(w=>{res.w=w;renderWeather(w)}).catch(e=>wB.replaceChildren(el('div','err',errText(e))));
+  const pt=loc.then(l=>getTraffic(l,cfg)).then(t=>{res.t=t;renderTraffic(t)}).catch(e=>tB.replaceChildren(el('div','err',errText(e))));
+  const pn=FEEDS.map(f=>getNews(f).then(items=>{res.n[f.n]=items;newsData[f.n]=items;renderNews()}).catch(e=>{res.n[f.n]=[];errs.push(e)}));
   await Promise.allSettled([pw,pt,...pn]);
-  if(!ul.children.length){nB.className='err';nB.textContent=errText({})}
+  const anyNews=Object.values(res.n).some(a=>a.length);
+  if(anyNews) renderNews(); else nB.replaceChildren(el('div','err',errText(errs[0])));
+  const ts=Date.now(); setStamp(ts,false);
+  if(res.w||res.t||anyNews) store.set('jv_last',{ts,w:res.w,t:res.t,n:res.n});
   briefing_on=false;
-  // fala
   const parts=['Bom dia, senhor.'];
-  if(res.w){const w=res.w;parts.push((w.city?'Em '+w.city+' ':'')+'faz '+Math.round(w.t)+' graus, '+wmo(w.code)+'. Máxima de '+Math.round(w.max)+' e mínima de '+Math.round(w.min)+'.'+(w.rain>=40?' Há '+w.rain+' por cento de chance de chuva.':''))}
-  if(res.t){parts.push('Seu trajeto até o trabalho leva '+res.t.min+' minutos'+(res.t.delay>=5?', com '+res.t.delay+' minutos de atraso por causa do trânsito.':', com trânsito livre.'))}
-  const hs=res.n.filter(x=>x.t); if(hs.length) parts.push('Principais manchetes. '+hs.map(x=>x.n+': '+x.t).join('. ')+'.');
+  if(res.w){const w=res.w;parts.push((w.city?'Em '+w.city+' ':'')+'faz '+Math.round(w.t)+' graus, '+wmo(w.code)+'. Máxima de '+Math.round(w.max)+' e mínima de '+Math.round(w.min)+'.'+(Math.max(...w.rains.slice(0,12))>=40?' Há chance de chuva nas próximas horas.':''))}
+  if(res.t){
+    parts.push('Seu trajeto até o trabalho leva '+res.t.min+' minutos'+(res.t.delay>=5?', com '+res.t.delay+' minutos de atraso por causa do trânsito.':', com trânsito livre.'));
+    const b=res.t.opts.reduce((a,x)=>x.m<a.m?x:a,res.t.opts[0]);
+    if(b&&b.o>0&&res.t.min-b.m>=5) parts.push('Sair daqui a '+b.o+' minutos economiza cerca de '+(res.t.min-b.m)+' minutos.');
+  }
+  const hs=FEEDS.map(f=>({n:f.n,t:(res.n[f.n]||[])[0]&&res.n[f.n][0].t})).filter(x=>x.t);
+  if(hs.length) parts.push('Principais manchetes. '+hs.map(x=>x.n+': '+x.t).join('. ')+'.');
   if(parts.length===1) parts.push('Não consegui consultar a internet daqui. Veja as instruções no painel.');
   const sayTxt=parts.join(' ');
   logLine('j',sayTxt); speak(sayTxt,null,'pt');
 }
-$('#cfgWork').value=store.get('jv_work','');$('#cfgHome').value=store.get('jv_home','');$('#cfgCity').value=store.get('jv_city','');$('#cfgTT').value=store.get('jv_tt','');
-$('#saveBrief').addEventListener('click',()=>{
-  store.set('jv_work',$('#cfgWork').value.trim());store.set('jv_home',$('#cfgHome').value.trim());
-  store.set('jv_city',$('#cfgCity').value.trim());store.set('jv_tt',$('#cfgTT').value.trim());
-  logLine('s','Configuração do resumo do dia salva neste navegador.');
-});
-$('#runBrief').addEventListener('click',()=>briefing());
+function restoreLast(){
+  const last=store.get('jv_last',null); if(!last) return;
+  try{
+    ensureBrief();
+    if(last.w) renderWeather(last.w); else wB.append(el('div','err','Sem dados salvos.'));
+    if(last.t) renderTraffic(last.t); else tB.append(el('div','err','Sem dados salvos.'));
+    newsData=last.n||{}; renderNews(); setStamp(last.ts,true);
+  }catch(e){}
+}
+
 
 /* ---------- chave de API ---------- */
 $('#apiKey').value=store.get('jv_key','');$('#apiModel').value=store.get('jv_model','');
@@ -803,7 +937,7 @@ function frame(t){
 }
 
 /* ---------- inicialização ---------- */
-renderApps();renderNotes();
+renderApps();renderNotes();restoreLast();
 function initialDiag(){
   const t=[];
   t.push(SR?'Microfone: reconhecimento disponível':'Microfone: reconhecimento indisponível aqui');
