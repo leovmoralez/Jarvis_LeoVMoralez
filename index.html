@@ -225,7 +225,7 @@ button.on{background:var(--arc);color:var(--bg)}
     <div class="panel">
       <h2>Núcleo de IA <span id="engine2">chave opcional</span></h2>
       <div class="set">
-        <p class="hint">Dentro do Claude, o núcleo funciona sozinho. Já existe uma chave da Groq embutida. Para trocar, cole aqui uma chave de API. Gratuita: Groq (gsk_..., em console.groq.com/keys) ou Google (AQ., em aistudio.google.com/app/apikey). Paga: Anthropic (sk-ant-). Ela fica salva só neste navegador e tem prioridade sobre a chave embutida no arquivo.</p>
+        <p class="hint">Dentro do Claude, o núcleo funciona sozinho. Já existe uma chave da Groq embutida. Para trocar, cole aqui uma chave de API. Gratuita: Groq (gsk_..., em console.groq.com/keys; modelos gpt-oss e Qwen) ou Google (AQ., em aistudio.google.com/app/apikey). Paga: Anthropic (sk-ant-). Ela fica salva só neste navegador e tem prioridade sobre a chave embutida no arquivo.</p>
         <label>Chave de API<input id="apiKey" type="password" autocomplete="off" placeholder="gsk_... ou AQ.... ou sk-ant-..." style="background:transparent;color:var(--text);border:1px solid var(--line);font:inherit;padding:8px"></label>
         <label>Modelo<input id="apiModel" type="text" placeholder="deixe vazio (automático)" style="background:transparent;color:var(--text);border:1px solid var(--line);font:inherit;padding:8px"></label>
         <button id="saveKey" type="button">Salvar</button>
@@ -563,21 +563,39 @@ async function askClaude(q){
     } else {
       const customModel=store.get('jv_model','');
       if(/^gsk_/.test(apiKey)){
-        // chave gratuita da Groq (modelos Llama)
-        const models=customModel?[customModel]:['llama-3.3-70b-versatile','llama-3.1-8b-instant'];
-        let lastErr={code:'http_0'}, done=false;
-        for(const model of models){
+        // chave gratuita da Groq (os Llama 3.x foram aposentados em 16/08/2026)
+        const askGroq=async model=>{
+          const body={model,messages:[{role:'user',content:prompt}],max_completion_tokens:1024,temperature:0.7};
+          if(/gpt-oss/.test(model)) body.reasoning_effort='low';
           const res=await fetch('https://api.groq.com/openai/v1/chat/completions',{method:'POST',signal:ctl.signal,
-            headers:{'content-type':'application/json','authorization':'Bearer '+apiKey},
-            body:JSON.stringify({model,messages:[{role:'user',content:prompt}],max_tokens:400,temperature:0.7})});
+            headers:{'content-type':'application/json','authorization':'Bearer '+apiKey},body:JSON.stringify(body)});
           if(res.ok){
             const j=await res.json();
-            raw=((j.choices||[])[0]&&j.choices[0].message&&j.choices[0].message.content)||'';
-            done=true; break;
+            return {ok:true,text:((j.choices||[])[0]&&j.choices[0].message&&j.choices[0].message.content)||''};
           }
           let det=''; try{const ej=await res.json(); det=(ej.error&&ej.error.message)||''}catch(_){}
-          lastErr={code:'http_'+res.status,detail:det,model};
-          if(![400,404,429].includes(res.status)) break;
+          return {ok:false,err:{code:'http_'+res.status,detail:det,model}};
+        };
+        const retry=c=>['http_400','http_404','http_429'].includes(c);
+        let models=customModel?[customModel]:['openai/gpt-oss-120b','openai/gpt-oss-20b','qwen/qwen3.6-27b'];
+        let lastErr={code:'http_0'}, done=false, tried=new Set();
+        for(let pass=0;pass<2&&!done;pass++){
+          for(const model of models){
+            if(tried.has(model)) continue; tried.add(model);
+            const r=await askGroq(model);
+            if(r.ok){raw=r.text;done=true;break}
+            lastErr=r.err; if(!retry(r.err.code)) break;
+          }
+          if(done||customModel||!retry(lastErr.code)) break;
+          // última tentativa: descobre os modelos de chat disponíveis para esta chave
+          try{
+            const mr=await fetch('https://api.groq.com/openai/v1/models',{signal:ctl.signal,headers:{'authorization':'Bearer '+apiKey}});
+            if(mr.ok){
+              const mj=await mr.json();
+              models=(mj.data||[]).map(m=>m.id).filter(id=>!/whisper|guard|tts|embed|orpheus|safeguard|compound|prompt-guard|playai/i.test(id))
+                .sort((x,y)=>(/gpt-oss|qwen|llama/.test(y)?1:0)-(/gpt-oss|qwen|llama/.test(x)?1:0)).slice(0,5);
+            } else break;
+          }catch(_){break}
         }
         if(!done) throw lastErr;
       } else if(/^(AIza|AQ\.)/.test(apiKey)){
